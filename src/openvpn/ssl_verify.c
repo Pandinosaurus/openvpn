@@ -1546,18 +1546,9 @@ verify_user_pass_plugin(struct tls_session *session, struct tls_multi *multi,
 
 
 #ifdef ENABLE_MANAGEMENT
-/*
- * management deferred internal ssl_verify.c status codes
- */
-#define KMDA_ERROR   0
-#define KMDA_SUCCESS 1
-#define KMDA_UNDEF   2
-#define KMDA_DEF     3
-
-static int
+static void
 verify_user_pass_management(struct tls_session *session, const struct user_pass *up)
 {
-    int retval = KMDA_ERROR;
     const struct key_state *ks = &session->key[KS_PRIMARY]; /* primary key */
 
     /* set username/password in private env space */
@@ -1570,10 +1561,6 @@ verify_user_pass_management(struct tls_session *session, const struct user_pass 
     }
 
     setenv_del(session->opt->es, "password");
-
-    retval = KMDA_SUCCESS;
-
-    return retval;
 }
 #endif /* ifdef ENABLE_MANAGEMENT */
 
@@ -1638,12 +1625,7 @@ verify_user_pass(struct user_pass *up, struct tls_multi *multi, struct tls_sessi
     ASSERT(up && !up->protected);
 
 #ifdef ENABLE_MANAGEMENT
-    int man_def_auth = KMDA_UNDEF;
-
-    if (management_enable_def_auth(management))
-    {
-        man_def_auth = KMDA_DEF;
-    }
+    const bool man_def_auth = management_enable_def_auth(management);
 #endif
 
     /* enforce character class restrictions in username/password */
@@ -1731,9 +1713,9 @@ verify_user_pass(struct user_pass *up, struct tls_multi *multi, struct tls_sessi
     if (!skip_auth)
     {
 #ifdef ENABLE_MANAGEMENT
-        if (man_def_auth == KMDA_DEF)
+        if (man_def_auth)
         {
-            man_def_auth = verify_user_pass_management(session, up);
+            verify_user_pass_management(session, up);
         }
 #endif
         if (plugin_defined(session->opt->plugins, OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY))
@@ -1761,11 +1743,7 @@ verify_user_pass(struct user_pass *up, struct tls_multi *multi, struct tls_sessi
     bool script_ok = script_status == OPENVPN_PLUGIN_FUNC_SUCCESS
                      || script_status == OPENVPN_PLUGIN_FUNC_DEFERRED;
 
-    if (script_ok && plugin_ok && tls_lock_username(multi, up->username)
-#ifdef ENABLE_MANAGEMENT
-        && man_def_auth != KMDA_ERROR
-#endif
-    )
+    if (script_ok && plugin_ok && tls_lock_username(multi, up->username))
     {
         ks->authenticated = KS_AUTH_TRUE;
         if (plugin_status == OPENVPN_PLUGIN_FUNC_DEFERRED
@@ -1774,7 +1752,7 @@ verify_user_pass(struct user_pass *up, struct tls_multi *multi, struct tls_sessi
             ks->authenticated = KS_AUTH_DEFERRED;
         }
 #ifdef ENABLE_MANAGEMENT
-        if (man_def_auth != KMDA_UNDEF)
+        if (man_def_auth)
         {
             if (skip_auth)
             {
